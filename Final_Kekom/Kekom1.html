@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Encryption and Decryption</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f4f4f9;
+        }
+        .container {
+            background: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            width: 90%;
+            max-width: 400px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        input, button {
+            width: 100%;
+            margin-top: 10px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .time-info {
+            margin-top: 10px;
+            font-size: 14px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>File Encryption & Decryption</h1>
+
+        <label for="rsaKey">Generated RSA Key Pair:</label>
+        <textarea id="rsaKey" readonly></textarea>
+
+        <button id="generateKeyButton">Generate RSA Key Pair</button>
+        
+        <label for="fileInput">Choose a file to encrypt:</label>
+        <input type="file" id="fileInput" accept=".txt,.json,.csv,.docx,.xlsx">
+
+        <label for="encryptionKey">Enter encryption key:</label>
+        <input type="password" id="encryptionKey" placeholder="Enter a key">
+
+        <label for="rsaPublicKey">Enter RSA public key:</label>
+        <textarea id="rsaPublicKey" placeholder="Enter RSA public key"></textarea>
+
+        <button id="encryptButton">Encrypt</button>
+        <div id="encryptionTime" class="time-info"></div>
+
+        <label for="encryptedFile" style="margin-top: 20px;">Download encrypted file:</label>
+        <a id="encryptedFile" style="display: none;">Download</a>
+
+        <hr>
+
+        <label for="rsaPrivateKey">Enter RSA private key:</label>
+        <textarea id="rsaPrivateKey" placeholder="Enter RSA private key"></textarea>
+
+        <!-- <label for="decryptionKey">Enter decryption key:</label>
+        <input type="password" id="decryptionKey" placeholder="Enter the key"> -->
+
+        <label for="encryptedFileInput">Upload encrypted file:</label>
+        <input type="file" id="encryptedFileInput" accept=".enc">
+
+        <button id="decryptButton">Decrypt</button>
+        <div id="decryptionTime" class="time-info"></div>
+
+        <label for="decryptedFile" style="margin-top: 20px;">Download decrypted file:</label>
+        <a id="decryptedFile" style="display: none;">Download</a>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsencrypt/3.2.1/jsencrypt.min.js"></script>
+    <script>
+        let rsaPublicKey = '';
+        let rsaPrivateKey = '';
+
+        document.getElementById('generateKeyButton').addEventListener('click', () => {
+            const rsa = new JSEncrypt({ default_key_size: 2048 });
+            rsa.getKey();
+            rsaPublicKey = rsa.getPublicKey();
+            rsaPrivateKey = rsa.getPrivateKey();
+            document.getElementById('rsaKey').value = `Public Key:\n${rsaPublicKey}\n\nPrivate Key:\n${rsaPrivateKey}`;
+            alert('RSA Key Pair Generated!');
+        });
+
+        function readFileInChunks(file, chunkSize, onChunkRead, onFinish) {
+            const reader = new FileReader();
+            let offset = 0;
+
+            reader.onload = function (event) {
+                if (event.target.result) {
+                    onChunkRead(event.target.result, offset, file);
+                    offset += chunkSize;
+                    if (offset < file.size) {
+                        readNextChunk();
+                    } else {
+                        onFinish();
+                    }
+                }
+            };
+
+            reader.onerror = function (error) {
+                console.error('File reading error:', error);
+            };
+
+            function readNextChunk() {
+                const slice = file.slice(offset, offset + chunkSize);
+                reader.readAsText(slice);
+            }
+
+            readNextChunk();
+        }
+
+        document.getElementById('encryptButton').addEventListener('click', () => {
+            const fileInput = document.getElementById('fileInput').files[0];
+            const aesKey = document.getElementById('encryptionKey').value;
+            const rsaPublicKey = document.getElementById('rsaPublicKey').value;
+
+            if (fileInput && aesKey && rsaPublicKey) {
+                const encryptedChunks = [];
+                const chunkSize = 1024 * 1024 * 5;
+                const startTime = performance.now();
+                const rsaEncrypt = new JSEncrypt();
+                rsaEncrypt.setPublicKey(rsaPublicKey);
+
+                const encryptedAESKey = rsaEncrypt.encrypt(aesKey);
+
+                if (!encryptedAESKey) {
+                    alert('RSA encryption failed. Please check the public key.');
+                    return;
+                }
+
+                readFileInChunks(
+                    fileInput,
+                    chunkSize,
+                    (chunk, offset, file) => {
+                        const encrypted = CryptoJS.AES.encrypt(chunk, aesKey).toString();
+                        encryptedChunks.push(JSON.stringify({ chunkIndex: offset / chunkSize, chunkData: encrypted }));
+                    },
+                    () => {
+                        const endTime = performance.now();
+                        const metadata = { encryptedAESKey };
+                        const blob = new Blob([JSON.stringify(metadata), "\n", encryptedChunks.join("\n")], { type: 'text/plain' });
+                        const link = document.getElementById('encryptedFile');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = `${fileInput.name}.enc`;
+                        link.style.display = 'inline';
+                        document.getElementById('encryptionTime').textContent = `Encryption completed in ${(endTime - startTime).toFixed(2)} ms.`;
+                    }
+                );
+            } else {
+                alert('Please provide a file, encryption key, and RSA public key.');
+            }
+        });
+
+        document.getElementById('decryptButton').addEventListener('click', () => {
+            const fileInput = document.getElementById('encryptedFileInput').files[0];
+            const rsaPrivateKey = document.getElementById('rsaPrivateKey').value;
+
+            if (fileInput && rsaPrivateKey) {
+                const reader = new FileReader();
+                const startTime = performance.now();
+
+                reader.onload = function(event) {
+                    const [metadataLine, ...lines] = event.target.result.split("\n");
+                    let metadata;
+
+                    try {
+                        metadata = JSON.parse(metadataLine);
+                    } catch {
+                        alert('Invalid metadata format. Decryption aborted.');
+                        return;
+                    }
+
+                    const rsaDecrypt = new JSEncrypt();
+                    rsaDecrypt.setPrivateKey(rsaPrivateKey);
+
+                    const aesKey = rsaDecrypt.decrypt(metadata.encryptedAESKey);
+
+                    if (!aesKey) {
+                        alert('RSA decryption failed. Please check the private key.');
+                        return;
+                    }
+
+                    const decryptedChunks = [];
+                    const hash = CryptoJS.SHA256(aesKey).toString(); // Optional hash for validation
+
+                    try {
+                        lines.forEach(line => {
+                            if (line.trim()) {
+                                const { chunkIndex, chunkData } = JSON.parse(line);
+                                const decrypted = CryptoJS.AES.decrypt(chunkData, aesKey).toString(CryptoJS.enc.Utf8);
+                                if (!decrypted) throw new Error(`Decryption failed for chunk ${chunkIndex}`);
+                                decryptedChunks.push(decrypted);
+                            }
+                        });
+
+                        const endTime = performance.now();
+                        const blob = new Blob(decryptedChunks, { type: 'text/plain' });
+                        const link = document.getElementById('decryptedFile');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = fileInput.name.replace('.enc', '.txt');
+                        link.style.display = 'inline';
+                        document.getElementById('decryptionTime').textContent = `Decryption completed in ${(endTime - startTime).toFixed(2)} ms.`;
+                    } catch (error) {
+                        console.error('Decryption failed:', error);
+                        alert('Decryption failed. Ensure the correct keys are used.');
+                    }
+                };
+
+                reader.readAsText(fileInput);
+            } else {
+                alert('Please provide an encrypted file and RSA private key.');
+            }
+        });
+    </script>    
+</body>
+</html>
